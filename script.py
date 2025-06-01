@@ -1,179 +1,154 @@
 import os
 
-def type_R(name, bits, format_res):
-    bits = bits[6:]
-
-    rs = bits[:5]
-    bits = bits[5:]
-
-    rt = bits[:5]
-    bits = bits[5:]
-
-    rd = bits[:5]
-    bits = bits[5:]
-
-    shamt = bits[:5]
-    bits = bits[5:]
-
-    func = bits[:6]
-
-    format_res = r_instructions[func]['format_func']
-    name = r_instructions[func]['mnemonic']
-
-    return format_res(rs, rt, rd, shamt, name)
-
-
-def type_I(name, bits, format_res):
-    bits = bits[6:]
-
-    rs = bits[:5]
-    bits = bits[5:]
-
-    rt = bits[:5]
-    bits = bits[5:]
-
-    immediate = bits[:16]
-
-    return format_res(name, rt, rs, immediate)
-
-
-def type_J(name, bits, format_res):
-    bits = bits[6:]
-    address = bits[:26]
-    return format_J(address)
-
-
-# Formatters
-def format_R_default(rs, rt, rd, shamt, func_name):
-    return f'{func_name} {registers[rd]}, {registers[rs]}, {registers[rt]}'
-
-
-def format_R_shift(rs, rt, rd, shamt, func_name):
-    return f'{func_name} {registers[rt]}, {registers[rd]}, {convert_binary_to_decimal(shamt)}'
-
-
-def format_R_jump(rs, rt, rd, shamt, func_name):
-    return f'{func_name} {registers[rs]}'
-
-
-def format_J(immediate):
-    return f'j {convert_binary_to_decimal(immediate)}'
-
-
-def format_I_load_store(name, rt, rs, immediate):
-    return f'{name}, {registers[rt]}, {convert_binary_to_decimal(immediate)}({registers[rs]})'
-
-
-def format_I_logic_arithmetic(name, rt, rs, immediate):
-    return f'{name}, {registers[rt]}, {registers[rs]}, {convert_binary_to_decimal(immediate)}'
-
-
-def format_I_branch(name, rt, rs, immediate):
-    return f'{name}, {registers[rs]}, {registers[rt]}, {convert_binary_to_decimal(immediate)}'
-
-
-def format_I_branch_single(name, rt, rs, immediate):
-    return f'{name} {registers[rs]}, {convert_binary_to_decimal(immediate)}'
-
-
-# Helper functions
-def convert_binary_to_decimal(binary):
+# ========== Utility ==========
+def convert_binary_to_decimal(binary: str):
     value = int(binary, 2)
     if binary[0] == '1' and len(binary) == 16:
         value -= (1 << 16)
     return str(value)
 
+# ========== Instruction Parsers ==========
+def parse_r_type(_, bits, _format):
+    rs = bits[6:11]
+    rt = bits[11:16]
+    rd = bits[16:21]
+    shamt = bits[21:26]
+    func = bits[26:32]
 
-def process_file(input_path):
-    output_lines = []
+    fmt = r_instructions[func]
+    return fmt['format'](rs, rt, rd, shamt, fmt['mnemonic'])
 
+def parse_i_type(name, bits, fmt):
+    rs = bits[6:11]
+    rt = bits[11:16]
+    imm = bits[16:32]
+
+    return fmt(name, rt, rs, imm)
+
+def parse_j_type(_, bits, fmt):
+    return fmt(bits[6:32])
+
+# ========== Formatters ==========
+def fmt_r_default(rs, rt, rd, _, name):
+    return f"{name} {registers[rd]}, {registers[rs]}, {registers[rt]}"
+
+def fmt_r_shift(_, rt, rd, shamt, name):
+    return f"{name} {registers[rt]}, {registers[rd]}, {convert_binary_to_decimal(shamt)}"
+
+def fmt_r_jump(rs, *_):
+    return f"jr {registers[rs]}"
+
+def fmt_j_target(address):
+    return f"j {convert_binary_to_decimal(address)}"
+
+def fmt_i_mem(name, rt, rs, imm):
+    return f"{name}, {registers[rt]}, {convert_binary_to_decimal(imm)}({registers[rs]})"
+
+def fmt_i_arith(name, rt, rs, imm):
+    return f"{name}, {registers[rt]}, {registers[rs]}, {convert_binary_to_decimal(imm)}"
+
+def fmt_i_branch(name, rt, rs, imm):
+    return f"{name}, {registers[rs]}, {registers[rt]}, {convert_binary_to_decimal(imm)}"
+
+def fmt_i_branch_single(name, _, rs, imm):
+    return f"{name} {registers[rs]}, {convert_binary_to_decimal(imm)}"
+
+# ========== Decoding ==========
+def decode_instruction(binary_line):
+    opcode = binary_line[:6]
+    instruction = instruction_set.get(opcode)
+    if not instruction:
+        return "Invalid opcode"
+
+    return instruction['parser'](instruction['name'], binary_line, instruction['format'])
+
+# ========== Processing ==========
+def process_file(path):
+    results = []
     try:
-        with open(input_path, 'r') as file:
+        with open(path, 'r') as file:
             for line in file:
                 line = line.strip()
-                if len(line) != 32:
-                    continue
-
-                opcode = line[:6]
-                if opcode not in instruction_types:
-                    output_lines.append("Invalid opcode")
-                    continue
-
-                method = instruction_types[opcode]['method']
-                name = instruction_types[opcode]['name']
-                format_func = instruction_types[opcode]['format_func']
-
-                result = method(name, line, format_func)
-                output_lines.append(result)
+                if len(line) == 32:
+                    results.append(decode_instruction(line))
     except FileNotFoundError:
-        print(f"File not found: {input_path}")
+        print(f"❌ File not found: {path}")
+    return results
 
-    return output_lines
-
-
-# Instruction tables
+# ========== Instruction Tables ==========
 r_instructions = {
-    '100000': {'mnemonic': 'add', 'format_func': format_R_default},
-    '100010': {'mnemonic': 'sub', 'format_func': format_R_default},
-    '100100': {'mnemonic': 'and', 'format_func': format_R_default},
-    '100101': {'mnemonic': 'or', 'format_func': format_R_default},
-    '100110': {'mnemonic': 'xor', 'format_func': format_R_default},
-    '000000': {'mnemonic': 'sll', 'format_func': format_R_shift},
-    '000010': {'mnemonic': 'srl', 'format_func': format_R_shift},
-    '001000': {'mnemonic': 'jr', 'format_func': format_R_jump},
+    '100000': {'mnemonic': 'add',  'format': fmt_r_default},
+    '100010': {'mnemonic': 'sub',  'format': fmt_r_default},
+    '100100': {'mnemonic': 'and',  'format': fmt_r_default},
+    '100101': {'mnemonic': 'or',   'format': fmt_r_default},
+    '100110': {'mnemonic': 'xor',  'format': fmt_r_default},
+    '000000': {'mnemonic': 'sll',  'format': fmt_r_shift},
+    '000010': {'mnemonic': 'srl',  'format': fmt_r_shift},
+    '001000': {'mnemonic': 'jr',   'format': fmt_r_jump},
 }
 
-instruction_types = {
-    # R-type
-    '000000': {'method': type_R, 'name': '', 'format_func': None},
+instruction_set = {
+    '000000': {'parser': parse_r_type, 'name': '',     'format': None},
 
-    # load/store
-    '100000': {'method': type_I, 'name': 'lb', 'format_func': format_I_load_store},
-    '100001': {'method': type_I, 'name': 'lh', 'format_func': format_I_load_store},
-    '100011': {'method': type_I, 'name': 'lw', 'format_func': format_I_load_store},
-    '101000': {'method': type_I, 'name': 'sb', 'format_func': format_I_load_store},
-    '101001': {'method': type_I, 'name': 'sh', 'format_func': format_I_load_store},
-    '101011': {'method': type_I, 'name': 'sw', 'format_func': format_I_load_store},
+    # Memory
+    '100000': {'parser': parse_i_type, 'name': 'lb',   'format': fmt_i_mem},
+    '100001': {'parser': parse_i_type, 'name': 'lh',   'format': fmt_i_mem},
+    '100011': {'parser': parse_i_type, 'name': 'lw',   'format': fmt_i_mem},
+    '101000': {'parser': parse_i_type, 'name': 'sb',   'format': fmt_i_mem},
+    '101001': {'parser': parse_i_type, 'name': 'sh',   'format': fmt_i_mem},
+    '101011': {'parser': parse_i_type, 'name': 'sw',   'format': fmt_i_mem},
 
-    # immediate arithmetic/logical
-    '001000': {'method': type_I, 'name': 'addi', 'format_func': format_I_logic_arithmetic},
-    '001100': {'method': type_I, 'name': 'andi', 'format_func': format_I_logic_arithmetic},
-    '001101': {'method': type_I, 'name': 'ori', 'format_func': format_I_logic_arithmetic},
-    '001110': {'method': type_I, 'name': 'xori', 'format_func': format_I_logic_arithmetic},
-    '001111': {'method': type_I, 'name': 'liu', 'format_func': format_I_logic_arithmetic},
+    # Arithmetic / Logic
+    '001000': {'parser': parse_i_type, 'name': 'addi', 'format': fmt_i_arith},
+    '001100': {'parser': parse_i_type, 'name': 'andi', 'format': fmt_i_arith},
+    '001101': {'parser': parse_i_type, 'name': 'ori',  'format': fmt_i_arith},
+    '001110': {'parser': parse_i_type, 'name': 'xori', 'format': fmt_i_arith},
+    '001111': {'parser': parse_i_type, 'name': 'liu',  'format': fmt_i_arith},
 
-    # branches
-    '000100': {'method': type_I, 'name': 'beq', 'format_func': format_I_branch},
-    '000101': {'method': type_I, 'name': 'bne', 'format_func': format_I_branch},
-    '000110': {'method': type_I, 'name': 'blez', 'format_func': format_I_branch_single},
-    '000111': {'method': type_I, 'name': 'bgtz', 'format_func': format_I_branch_single},
+    # Branches
+    '000100': {'parser': parse_i_type, 'name': 'beq',  'format': fmt_i_branch},
+    '000101': {'parser': parse_i_type, 'name': 'bne',  'format': fmt_i_branch},
+    '000110': {'parser': parse_i_type, 'name': 'blez', 'format': fmt_i_branch_single},
+    '000111': {'parser': parse_i_type, 'name': 'bgtz', 'format': fmt_i_branch_single},
 
-    # jump
-    '000010': {'method': type_J, 'name': '', 'format_func': format_J},
+    # Jump
+    '000010': {'parser': parse_j_type, 'name': '',     'format': fmt_j_target},
 }
 
 registers = {
     '00000': '$zero',
-    '01000': '$t0', '01001': '$t1', '01010': '$t2', '01011': '$t3',
-    '01100': '$t4', '01101': '$t5', '01110': '$t6', '01111': '$t7',
-    '10000': '$s0', '10001': '$s1', '10010': '$s2', '10011': '$s3',
-    '10100': '$s4', '10101': '$s5', '10110': '$s6', '10111': '$s7',
+
+    '01000': '$t0',
+    '01001': '$t1',
+    '01010': '$t2',
+    '01011': '$t3',
+    '01100': '$t4',
+    '01101': '$t5',
+    '01110': '$t6',
+    '01111': '$t7',
+
+    '10000': '$s0',
+    '10001': '$s1',
+    '10010': '$s2',
+    '10011': '$s3',
+    '10100': '$s4',
+    '10101': '$s5',
+    '10110': '$s6',
+    '10111': '$s7',
 }
 
-
-# Main execution
+# ========== Main ==========
 if __name__ == '__main__':
-    FILE_PATH = 'D:\\Faculdade\\ArquiteturaComputadores'
+    base_path = 'D:\\Faculdade\\ArquiteturaComputadores'
 
     for i in range(1, 11):  # TESTE-01.txt to TESTE-10.txt
-        current_file = f'{i:02}'
-        input_file = os.path.join(FILE_PATH, f'TESTE-{current_file}.txt')
-        output_file = os.path.join(FILE_PATH, f'TESTE-{current_file}-RESULTADO.txt')
+        filename = f'TESTE-{i:02}'
+        input_file = os.path.join(base_path, f'{filename}.txt')
+        output_file = os.path.join(base_path, f'{filename}-RESULTADO.txt')
 
-        results = process_file(input_file)
+        decoded = process_file(input_file)
 
         with open(output_file, 'w') as out:
-            for line in results:
-                out.write(line + '\n')
+            out.write('\n'.join(decoded))
 
-        print(f'✅ Generated: {output_file}')
+        print(f'✅ Output generated: {output_file}')
