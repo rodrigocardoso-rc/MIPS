@@ -1,5 +1,5 @@
 import os
-
+##
 # ========== Utility ==========
 def convert_binary_to_decimal(binary: str):
     value = int(binary, 2)
